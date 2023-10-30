@@ -38,9 +38,11 @@
     - [Rolling window price change statistics](#rolling-window-price-change-statistics)
   - [Account endpoints](#account-endpoints)
     - [New order  (TRADE)](#new-order--trade)
+      - [Conditional fields in Order Responses](#conditional-fields-in-order-responses)
     - [Test new order (TRADE)](#test-new-order-trade)
     - [Query order (USER_DATA)](#query-order-user_data)
     - [Cancel order (TRADE)](#cancel-order-trade)
+      - [Regarding `cancelRestrictions`](#regarding-cancelrestrictions)
     - [Cancel all Open Orders on a Symbol (TRADE)](#cancel-all-open-orders-on-a-symbol-trade)
     - [Cancel an Existing Order and Send a New Order (TRADE)](#cancel-an-existing-order-and-send-a-new-order-trade)
     - [Current open orders (USER_DATA)](#current-open-orders-user_data)
@@ -53,33 +55,15 @@
     - [Account information (USER_DATA)](#account-information-user_data)
     - [Account trade list (USER_DATA)](#account-trade-list-user_data)
     - [Query Current Order Count Usage (TRADE)](#query-current-order-count-usage-trade)
+    - [Query Prevented Matches (USER_DATA)](#query-prevented-matches-user_data)
   - [User data stream endpoints](#user-data-stream-endpoints)
     - [Start user data stream (USER_STREAM)](#start-user-data-stream-user_stream)
     - [Keepalive user data stream (USER_STREAM)](#keepalive-user-data-stream-user_stream)
     - [Close user data stream (USER_STREAM)](#close-user-data-stream-user_stream)
-- [Filters](#filters)
-  - [Symbol filters](#symbol-filters)
-    - [PRICE_FILTER](#price_filter)
-    - [PERCENT_PRICE](#percent_price)
-    - [PERCENT_PRICE_BY_SIDE](#percent_price_by_side)
-    - [LOT_SIZE](#lot_size)
-    - [MIN_NOTIONAL](#min_notional)
-    - [NOTIONAL](#notional)
-    - [ICEBERG_PARTS](#iceberg_parts)
-    - [MARKET_LOT_SIZE](#market_lot_size)
-    - [MAX_NUM_ORDERS](#max_num_orders)
-    - [MAX_NUM_ALGO_ORDERS](#max_num_algo_orders)
-    - [MAX_NUM_ICEBERG_ORDERS](#max_num_iceberg_orders)
-    - [MAX_POSITION](#max_position)
-    - [TRAILING_DELTA](#trailing_delta)
-  - [Exchange Filters](#exchange-filters)
-    - [EXCHANGE_MAX_NUM_ORDERS](#exchange_max_num_orders)
-    - [EXCHANGE_MAX_NUM_ALGO_ORDERS](#exchange_max_num_algo_orders)
-    - [EXCHANGE_MAX_NUM_ICEBERG_ORDERS](#exchange_max_num_iceberg_orders)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-# Public Rest API for Binance (2022-06-20)
+# Public Rest API for Binance US (2023-09-06)
 # General API Information
 * The base endpoint is: **https://api.binance.us**
 * All endpoints return either a JSON object or array.
@@ -91,6 +75,7 @@
 * HTTP `4XX` return codes are used for malformed requests;
   the issue is on the sender's side.
 * HTTP `403` return code is used when the WAF Limit (Web Application Firewall) has been violated.
+* HTTP `409` return code is used when a cancelReplace order partially succeeds. (e.g. if the cancellation of the order fails but the new order placement succeeds.)
 * HTTP `429` return code is used when breaking a request rate limit.
 * HTTP `418` return code is used when an IP has been auto-banned for continuing to send requests after receiving `429` codes.
 * HTTP `5XX` return codes are used for internal errors; the issue is on
@@ -130,12 +115,11 @@ Sample Error below:
     * HOUR => H
     * DAY => D
 * The `/api/v3/exchangeInfo` `rateLimits` array contains objects related to the exchange's `RAW_REQUEST`, `REQUEST_WEIGHT`, and `ORDER` rate limits. These are further defined in the `ENUM definitions` section under `Rate limiters (rateLimitType)`.
-* A 429 will be returned when either rate limit is violated.
+* A 429 will be returned when either request rate limit or order rate limit is violated.
 * Each route has a `weight` which determines for the number of requests each endpoint counts for. Heavier endpoints and endpoints that do operations on multiple symbols will have a heavier `weight`.
 
 ## IP Limits
 * Every request will contain `X-MBX-USED-WEIGHT-(intervalNum)(intervalLetter)` headers which has the current used weight for the IP for all request rate limiters defined.
-* Every successful order will contain a `X-MBX-ORDER-COUNT-(intervalNum)(intervalLetter)` header which has the current order count for the IP for all order rate limiters defined. Rejected/unsuccessful orders are not guaranteed to have `X-MBX-ORDER-COUNT-**` headers in the response.
 * When a 429 is received, it's your obligation as an API to back off and not spam the API.
 * **Repeatedly violating rate limits and/or failing to back off after receiving 429s will result in an automated IP ban (HTTP status 418).**
 * IP bans are tracked and **scale in duration** for repeat offenders, **from 2 minutes to 3 days**.
@@ -307,17 +291,17 @@ These terms will be used throughout the documentation, so it is recommended espe
 ## ENUM definitions
 **Symbol status (status):**
 
-* PRE_TRADING
-* TRADING
-* POST_TRADING
-* END_OF_DAY
-* HALT
-* AUCTION_MATCH
-* BREAK
+* `PRE_TRADING`
+* `TRADING`
+* `POST_TRADING`
+* `END_OF_DAY`
+* `HALT`
+* `AUCTION_MATCH`
+* `BREAK`
 
 **Account and Symbol Permissions (permissions)**
 
-* SPOT
+* `SPOT`
 
 **Order status (status):**
 
@@ -327,9 +311,10 @@ Status | Description
 `PARTIALLY_FILLED`| A part of the order has been filled.
 `FILLED` | The order has been completed.
 `CANCELED` | The order has been canceled by the user.
-` PENDING_CANCEL` | Currently unused
+`PENDING_CANCEL` | Currently unused
 `REJECTED`       | The order was not accepted by the engine and not processed.
 `EXPIRED` | The order was canceled according to the order type's rules (e.g. LIMIT FOK orders with no fill, LIMIT IOC or MARKET orders that partially fill) <br> or by the exchange, (e.g. orders canceled during liquidation, orders canceled during maintenance)
+`EXPIRED_IN_MATCH` | The order was canceled by the exchange due to STP. (e.g. an order with `EXPIRE_TAKER` will match with existing orders on the book with the same account or same `tradeGroupId`)
 
 **OCO Status (listStatusType):**
 
@@ -348,22 +333,22 @@ Status | Description
 `REJECT` | The List Status is responding to a failed action either during order placement or order canceled
 
 **ContingencyType**
-* OCO
+* `OCO`
 
 **Order types (orderTypes, type):**
 
-* LIMIT
-* MARKET
-* STOP_LOSS
-* STOP_LOSS_LIMIT
-* TAKE_PROFIT
-* TAKE_PROFIT_LIMIT
-* LIMIT_MAKER
+* `LIMIT`
+* `MARKET`
+* `STOP_LOSS`
+* `STOP_LOSS_LIMIT`
+* `TAKE_PROFIT`
+* `TAKE_PROFIT_LIMIT`
+* `LIMIT_MAKER`
 
 **Order side (side):**
 
-* BUY
-* SELL
+* `BUY`
+* `SELL`
 
 **Time in force (timeInForce):**
 
@@ -492,8 +477,12 @@ There are 3 possible options:
 |------|------|
 |No parameter|curl -X GET "https://api.binance.us/api/v3/exchangeInfo"|
 |symbol|curl -X GET "https://api.binance.us/api/v3/exchangeInfo?symbol=BNBBTC"|
-|symbols|curl -X GET "https://api.binance.us/api/v3/exchangeInfo?symbols=%5B%22BNBBTC%22,%22BTCUSDT%22%5D" or curl -g GET 'https://api.binance.us/api/v3/exchangeInfo?symbols=["BTCUSDT","BNBBTC"]'|
+|symbols|curl -X GET "https://api.binance.us/api/v3/exchangeInfo?symbols=%5B%22BNBBTC%22,%22BTCUSDT%22%5D" or curl -g -X GET 'https://api.binance.us/api/v3/exchangeInfo?symbols=["BTCUSDT","BNBBTC"]'|
+|permissions| curl -X GET "https://api.binance.us/api/v3/exchangeInfo?permissions=["SPOT"]" or curl -g -X GET "https://api.binance.us/api/v3/exchangeInfo?permissions=%5B%22SPOT%22%5D" |
 
+**Notes**:
+* If the value provided `symbol` or `symbols` do not exist, the endpoint will throw an error that the symbol is invalid.
+* All parameters are optional.
 
 **Data Source:**
 Memory
@@ -548,6 +537,10 @@ Memory
   ],
   "permissions": [
      "SPOT"
+  ],
+  "defaultSelfTradePreventionMode": "NONE",
+  "allowedSelfTradePreventionModes": [
+     "NONE"
   ]
 }
 ```
@@ -687,7 +680,6 @@ startTime | LONG | NO | Timestamp in ms to get aggregate trades from INCLUSIVE.
 endTime | LONG | NO | Timestamp in ms to get aggregate trades until INCLUSIVE.
 limit | INT | NO | Default 500; max 1000.
 
-* If both startTime and endTime are sent, time between startTime and endTime must be less than 1 hour.
 * If fromId, startTime, and endTime are not sent, the most recent aggregate trades will be returned.
 
 **Data Source:**
@@ -753,6 +745,7 @@ Database
   ]
 ]
 ```
+
 
 
 ### Current average price
@@ -844,12 +837,23 @@ GET /api/v3/ticker/24hr
         <td>symbol</td>
         <td>STRING</td>
         <td>NO</td>
-        <td rowspan=2> Parameter <tt>symbol</tt> and <tt>symbols</tt> cannot be used in combination. <br> If neither parameter is sent, tickers for all <tt>symbols</tt> will be returned in an array <br> <br> Symbols accepts the following formats: ["BTCUSDT","LTCUSDT"] <br> or <br> %5B%22BTCUSDT%22,%22LTCUSDT%22%5D</td>
+        <td rowspan=2>Parameter symbol and symbols cannot be used in combination. <br> If neither parameter is sent, tickers for all symbols will be returned in an array. <br><br>
+         Examples of accepted format for the symbols parameter:
+         ["BTCUSDT","BNBUSDT"] <br>
+         or <br>
+         %5B%22BTCUSDT%22,%22BNBUSDT%22%5D
+        </td>
      </tr>
      <tr>
         <td>symbols</td>
         <td>STRING</td>
         <td>NO</td>
+     </tr>
+     <tr>
+        <td>type</td>
+        <td>ENUM</td>
+        <td>NO</td>
+        <td>Supported values: <tt>FULL</tt> or <tt>MINI</tt>. <br>If none provided, the default is <tt>FULL</tt> </td>
      </tr>
 </tbody>
 </table>
@@ -859,7 +863,7 @@ GET /api/v3/ticker/24hr
 **Data Source:**
 Memory
 
-**Response:**
+**Response: - FULL**
 ```javascript
 {
   "symbol": "BNBBTC",
@@ -914,6 +918,59 @@ OR
 ]
 ```
 
+**Response - MINI**
+
+```javascript
+{
+  "symbol":      "BNBBTC",          // Symbol Name
+  "openPrice":   "99.00000000",     // Opening price of the Interval
+  "highPrice":   "100.00000000",    // Highest price in the interval
+  "lowPrice":    "0.10000000",      // Lowest  price in the interval
+  "lastPrice":   "4.00000200",      // Closing price of the interval
+  "volume":      "8913.30000000",   // Total trade volume (in base asset)
+  "quoteVolume": "15.30000000",     // Total trade volume (in quote asset)
+  "openTime":    1499783499040,     // Start of the ticker interval
+  "closeTime":   1499869899040,     // End of the ticker interval
+  "firstId":     28385,             // First tradeId considered
+  "lastId":      28460,             // Last tradeId considered
+  "count":       76                 // Total trade count
+}
+```
+
+OR
+
+```javascript
+[
+  {
+    "symbol": "BNBBTC",
+    "openPrice": "99.00000000",
+    "highPrice": "100.00000000",
+    "lowPrice": "0.10000000",
+    "lastPrice": "4.00000200",
+    "volume": "8913.30000000",
+    "quoteVolume": "15.30000000",
+    "openTime": 1499783499040,
+    "closeTime": 1499869899040,
+    "firstId": 28385,
+    "lastId": 28460,
+    "count": 76
+  },
+  {
+    "symbol": "LTCBTC",
+    "openPrice": "0.07000000",
+    "highPrice": "0.07000000",
+    "lowPrice": "0.07000000",
+    "lastPrice": "0.07000000",
+    "volume": "11.00000000",
+    "quoteVolume": "0.77000000",
+    "openTime": 1656908192899,
+    "closeTime": 1656994592899,
+    "firstId": 0,
+    "lastId": 10,
+    "count": 11
+  }
+]
+```
 
 ### Symbol price ticker
 ```
@@ -1140,13 +1197,17 @@ E.g. If the `closeTime` is 1641287867099 (January 04, 2022 09:17:47:099 UTC) , a
      <td>Defaults to <tt>1d</tt> if no parameter provided <br> Supported <tt>windowSize</tt> values: <br> <tt>1m</tt>,<tt>2m</tt>....<tt>59m</tt> for minutes <br> <tt>1h</tt>, <tt>2h</tt>....<tt>23h</tt> - for hours <br> <tt>1d</tt>...<tt>7d</tt> - for days <br><br> Units cannot be combined (e.g. <tt>1d2h</tt> is not allowed)</td>
   </tr>
   <tr>
+      <td>type</td>
+      <td>ENUM</td>
+      <td>NO</td>
+      <td>Supported values: <tt>FULL</tt> or <tt>MINI</tt>. <br>If none provided, the default is <tt>FULL</tt> </td>
   </tr>
 </table>
 
 **Data Source:**
 Database
 
-**Response**
+**Response: - FULL**
 
 When using `symbol` :
 
@@ -1214,6 +1275,64 @@ When using `symbols`:
 ]
 ```
 
+**Response - MINI**
+
+When using `symbol`:
+
+```javascript
+{
+    "symbol": "LTCBTC",
+    "openPrice": "0.10000000",
+    "highPrice": "2.00000000",
+    "lowPrice": "0.10000000",
+    "lastPrice": "2.00000000",
+    "volume": "39.00000000",
+    "quoteVolume": "13.40000000",  // Sum of (price * volume) for all trades
+    "openTime": 1656986580000,     // Open time for ticker window
+    "closeTime": 1657001016795,    // Close time for ticker window
+    "firstId": 0,                  // Trade IDs
+    "lastId": 34,
+    "count": 35                    // Number of trades in the interval
+}
+```
+
+OR
+
+When using `symbols`:
+
+```javascript
+[
+    {
+        "symbol": "BNBBTC",
+        "openPrice": "0.10000000",
+        "highPrice": "2.00000000",
+        "lowPrice": "0.10000000",
+        "lastPrice": "2.00000000",
+        "volume": "39.00000000",
+        "quoteVolume": "13.40000000", // Sum of (price * volume) for all trades
+        "openTime": 1656986880000,    // Open time for ticker window
+        "closeTime": 1657001297799,   // Close time for ticker window
+        "firstId": 0,                 // Trade IDs
+        "lastId": 34,
+        "count": 35                   // Number of trades in the interval
+    },
+    {
+        "symbol": "LTCBTC",
+        "openPrice": "0.07000000",
+        "highPrice": "0.07000000",
+        "lowPrice": "0.07000000",
+        "lastPrice": "0.07000000",
+        "volume": "33.00000000",
+        "quoteVolume": "2.31000000",
+        "openTime": 1656986880000,
+        "closeTime": 1657001297799,
+        "firstId": 0,
+        "lastId": 32,
+        "count": 33
+    }
+]
+```
+
 ## Account endpoints
 ### New order  (TRADE)
 ```
@@ -1238,8 +1357,10 @@ quoteOrderQty|DECIMAL|NO|
 price | DECIMAL | NO |
 newClientOrderId | STRING | NO | A unique id among open orders. Automatically generated if not sent.<br> Orders with the same `newClientOrderID` can be accepted only when the previous one is filled, otherwise the order will be rejected.
 stopPrice | DECIMAL | NO | Used with `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT`, and `TAKE_PROFIT_LIMIT` orders.
+trailingDelta|LONG|NO| Used with `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT`, and `TAKE_PROFIT_LIMIT` orders.
 icebergQty | DECIMAL | NO | Used with `LIMIT`, `STOP_LOSS_LIMIT`, and `TAKE_PROFIT_LIMIT` to create an iceberg order.
 newOrderRespType | ENUM | NO | Set the response JSON. `ACK`, `RESULT`, or `FULL`; `MARKET` and `LIMIT` order types default to `FULL`, all other orders default to `ACK`.
+selfTradePreventionMode |ENUM| NO | The allowed enums is dependent on what is configured on the symbol. The possible supported values are `EXPIRE_TAKER`, `EXPIRE_MAKER`, `EXPIRE_BOTH`, `NONE`.
 recvWindow | LONG | NO |The value cannot be greater than ```60000```
 timestamp | LONG | YES |
 
@@ -1249,22 +1370,23 @@ Type | Additional mandatory parameters | Additional Information
 ------------ | ------------| ------
 `LIMIT` | `timeInForce`, `quantity`, `price`| 
 `MARKET` | `quantity` or `quoteOrderQty`| `MARKET` orders using the `quantity` field specifies the amount of the `base asset` the user wants to buy or sell at the market price. <br> E.g. MARKET order on BTCUSDT will specify how much BTC the user is buying or selling. <br><br> `MARKET` orders using `quoteOrderQty` specifies the amount the user wants to spend (when buying) or receive (when selling) the `quote` asset; the correct `quantity` will be determined based on the market liquidity and `quoteOrderQty`. <br> E.g. Using the symbol BTCUSDT: <br> `BUY` side, the order will buy as many BTC as `quoteOrderQty` USDT can. <br> `SELL` side, the order will sell as much BTC needed to receive `quoteOrderQty` USDT.
-`STOP_LOSS` | `quantity`, `stopPrice`| This will execute a `MARKET` order when the `stopPrice` is reached.
-`STOP_LOSS_LIMIT` | `timeInForce`, `quantity`,  `price`, `stopPrice` 
-`TAKE_PROFIT` | `quantity`, `stopPrice`| This will execute a `MARKET` order when the `stopPrice` is reached.
-`TAKE_PROFIT_LIMIT` | `timeInForce`, `quantity`, `price`, `stopPrice` | 
+`STOP_LOSS` | `quantity`, `stopPrice` or `trailingDelta`| This will execute a `MARKET` order when the conditions are met. (e.g. `stopPrice` is met or `trailingDelta` is activated)
+`STOP_LOSS_LIMIT` | `timeInForce`, `quantity`,  `price`, `stopPrice` or `trailingDelta` 
+`TAKE_PROFIT` | `quantity`, `stopPrice` or `trailingDelta` | This will execute a `MARKET` order when the conditions are met. (e.g. `stopPrice` is met or `trailingDelta` is activated)
+`TAKE_PROFIT_LIMIT` | `timeInForce`, `quantity`, `price`, `stopPrice` or `trailingDelta` | 
 `LIMIT_MAKER` | `quantity`, `price`| This is a `LIMIT` order that will be rejected if the order immediately matches and trades as a taker. <br> This is also known as a POST-ONLY order. 
 
 Other info:
 
 * Any `LIMIT` or `LIMIT_MAKER` type order can be made an iceberg order by sending an `icebergQty`.
 * Any order with an `icebergQty` MUST have `timeInForce` set to `GTC`.
+* For `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT_LIMIT` and `TAKE_PROFIT` orders, `trailingDelta` can be combined with `stopPrice`.
 * `MARKET` orders using `quoteOrderQty` will not break `LOT_SIZE` filter rules; the order will execute a `quantity` that will have the notional value as close as possible to `quoteOrderQty`.
-
 Trigger order price rules against market price for both MARKET and LIMIT versions:
 
 * Price above market price: `STOP_LOSS` `BUY`, `TAKE_PROFIT` `SELL`
 * Price below market price: `STOP_LOSS` `SELL`, `TAKE_PROFIT` `BUY`
+
 
 **Data Source:**
 Matching Engine
@@ -1295,7 +1417,9 @@ Matching Engine
   "status": "FILLED",
   "timeInForce": "GTC",
   "type": "MARKET",
-  "side": "SELL"
+  "side": "SELL",
+  "workingTime":1507725176595,
+  "selfTradePreventionMode": "NONE"
 }
 ```
 
@@ -1315,6 +1439,8 @@ Matching Engine
   "timeInForce": "GTC",
   "type": "MARKET",
   "side": "SELL",
+  "workingTime":1507725176595,
+  "selfTradePreventionMode": "NONE"
   "fills": [
     {
       "price": "4000.00000000",
@@ -1354,6 +1480,23 @@ Matching Engine
   ]
 }
 ```
+
+#### Conditional fields in Order Responses
+
+There are fields in the order responses (e.g. order placement, order query, order cancellation) that appear only if certain conditions are met. 
+
+These fields can apply to OCO Orders.
+
+The fields are listed below:
+
+Field          |Description                                                      |Visibility conditions                                           | Examples |
+----           | -----                                                           | ---                                                            |---       |
+`icebergQty`   | Quantity for the iceberg order | Appears only if the parameter `icebergQty` was sent in the request.| `"icebergQty": "0.00000000"`
+`preventedMatchId` |  When used in combination with `symbol`, can be used to query a prevented match. | Appears only if the order expired due to STP.| `"preventedMatchId": 0`
+`preventedQuantity` | Order quantity that expired due to STP | Appears only if the order expired due to STP. | `"preventedQuantity": "1.200000"`
+`stopPrice`    | Price when the algorithmic order will be triggered | Appears for `STOP_LOSS`, `TAKE_PROFIT`, `STOP_LOSS_LIMIT`, and `TAKE_PROFIT_LIMIT` orders.|`"stopPrice": "23500.00000000"`
+`trailingDelta`| Delta price change required before order activation| Appears for Trailing Stop Orders.|`"trailingDelta": 10`
+`trailingTime` | Time when the trailing order is now active and tracking price changes| Appears only for Trailing Stop Orders.| `"trailingTime": -1`
 
 ### Test new order (TRADE)
 ```
@@ -1424,9 +1567,13 @@ Memory => Database
   "time": 1499827319559,
   "updateTime": 1499827319559,
   "isWorking": true,
-  "origQuoteOrderQty": "0.000000"
+  "origQuoteOrderQty": "0.000000",
+  "workingTime":1507725176595,
+  "selfTradePreventionMode": "NONE"
 }
 ```
+
+**Note:** The payload above does not show all fields that can appear. Please refer to [Conditional fields in Order Responses](#conditional-fields-in-order-responses).
 
 ### Cancel order (TRADE)
 ```
@@ -1439,13 +1586,14 @@ Cancel an active order.
 
 **Parameters:**
 
-Name | Type | Mandatory | Description
------------- | ------------ | ------------ | ------------
-symbol | STRING | YES |
-orderId | LONG | NO |
-origClientOrderId | STRING | NO |
-newClientOrderId | STRING | NO |  Used to uniquely identify this cancel. Automatically generated by default.
-recvWindow | LONG | NO | The value cannot be greater than ```60000```
+Name              | Type         | Mandatory    | Description
+------------      | ------------ | ------------ | ------------
+symbol            | STRING       | YES          |
+orderId           | LONG         | NO           |
+origClientOrderId | STRING       | NO           |
+newClientOrderId  | STRING       | NO           |  Used to uniquely identify this cancel. Automatically generated by default.
+cancelRestrictions| ENUM         | NO           | Supported values: <br>`ONLY_NEW` - Cancel will succeed if the order status is `NEW`.<br> `ONLY_PARTIALLY_FILLED ` - Cancel will succeed if order status is `PARTIALLY_FILLED`.
+recvWindow | LONG | NO | The value cannot be greater than `60000`.
 timestamp | LONG | YES |
 
 Either `orderId` or `origClientOrderId` must be sent. If both are provided, `orderId` takes precedence.
@@ -1468,7 +1616,28 @@ Matching Engine
   "status": "CANCELED",
   "timeInForce": "GTC",
   "type": "LIMIT",
-  "side": "BUY"
+  "side": "BUY",
+  "selfTradePreventionMode": "NONE"
+}
+```
+
+**Note:** The payload above does not show all fields that can appear. Please refer to [Conditional fields in Order Responses](#conditional-fields-in-order-responses).
+
+
+#### Regarding `cancelRestrictions`
+
+* If the `cancelRestrictions` value is not any of the supported values, the error will be: 
+```json
+{
+    "code": -1145,
+    "msg": "Invalid cancelRestrictions"
+}
+```
+* If the order did not pass the conditions for `cancelRestrictions`, the error will be:
+```json
+{
+    "code": -2011,
+    "msg": "Order was not canceled due to cancel restrictions."
 }
 ```
 
@@ -1509,26 +1678,28 @@ A new order that was not attempted (i.e. when `newOrderResult: NOT_ATTEMPTED` ),
 
 **Parameters:**
 
-Name | Type | Mandatory | Description
------------- | ------------ | ------------ | ------------
-symbol | STRING | YES |
-side   |ENUM| YES|
-type   |ENUM| YES|
-cancelReplaceMode|ENUM|YES| The allowed values are: <br> `STOP_ON_FAILURE` - If the cancel request fails, the new order placement will not be attempted. <br> `ALLOW_FAILURE` - new order placement will be attempted even if cancel request fails.
-timeInForce|ENUM|NO|
-quantity|DECIMAL|NO|
-quoteOrderQty |DECIMAL|NO
-price |DECIMAL|NO
-cancelNewClientOrderId|STRING|NO |Used to uniquely identify this cancel. Automatically generated by default.
-cancelOrigClientOrderId|STRING| NO| Either the `cancelOrigClientOrderId` or `cancelOrderId` must be provided. If both are provided, `cancelOrderId` takes precedence.
-cancelOrderId|LONG|NO| Either the `cancelOrigClientOrderId` or `cancelOrderId` must be provided. If both are provided, `cancelOrderId` takes precedence.
-newClientOrderId |STRING|NO| Used to identify the new order.
-stopPrice|DECIMAL|NO|
-trailingDelta|LONG|NO|
-icebergQty|DECIMAL|NO|
-newOrderRespType|ENUM|NO|Allowed values: <br> `ACK`, `RESULT`, `FULL` <br> `MARKET` and `LIMIT` orders types default to `FULL`; all other orders default to `ACK`
-recvWindow | LONG | NO | The value cannot be greater than `60000`
-timestamp | LONG | YES |
+Name                   |Type    | Mandatory | Description
+------------           | ------ | --------- | ------------
+symbol                 | STRING | YES       |
+side                   |ENUM    | YES       |
+type                   |ENUM    | YES       |
+cancelReplaceMode      |ENUM    |YES        | The allowed values are: <br> `STOP_ON_FAILURE` - If the cancel request fails, the new order placement will not be attempted. <br> `ALLOW_FAILURE` - new order placement will be attempted even if cancel request fails.
+timeInForce            |ENUM    |NO         |
+quantity               |DECIMAL |NO         |
+quoteOrderQty          |DECIMAL |NO
+price                  |DECIMAL |NO
+cancelNewClientOrderId |STRING  |NO         |Used to uniquely identify this cancel. Automatically generated by default.
+cancelOrigClientOrderId|STRING  | NO        | Either the `cancelOrigClientOrderId` or `cancelOrderId` must be provided. If both are provided, `cancelOrderId` takes precedence.
+cancelOrderId          |LONG    |NO         | Either the `cancelOrigClientOrderId` or `cancelOrderId` must be provided. If both are provided, `cancelOrderId` takes precedence.
+newClientOrderId       |STRING  |NO         | Used to identify the new order.
+stopPrice              |DECIMAL |NO         |
+trailingDelta          |LONG    |NO         |
+icebergQty             |DECIMAL |NO         |
+newOrderRespType       |ENUM    |NO         |Allowed values: <br> `ACK`, `RESULT`, `FULL` <br> `MARKET` and `LIMIT` orders types default to `FULL`; all other orders default to `ACK`
+selfTradePreventionMode|ENUM    |NO         | The allowed enums is dependent on what is configured on the symbol. The possible supported values are `EXPIRE_TAKER`, `EXPIRE_MAKER`, `EXPIRE_BOTH`, `NONE`.
+cancelRestrictions     |ENUM    | NO        | Supported values: <br>`ONLY_NEW` - Cancel will succeed if the order status is `NEW`.<br> `ONLY_PARTIALLY_FILLED ` - Cancel will succeed if order status is `PARTIALLY_FILLED`. For more information please refer to [Regarding `cancelRestrictions`](#regarding-cancelrestrictions)
+recvWindow             | LONG   | NO        | The value cannot be greater than `60000`
+timestamp              | LONG | YES |
 
 Similar to `POST /api/v3/order`, additional mandatory parameters are determined by `type`.
 
@@ -1557,7 +1728,8 @@ Matching Engine
     "status": "CANCELED",
     "timeInForce": "GTC",
     "type": "LIMIT",
-    "side": "SELL"
+    "side": "SELL",
+    "selfTradePreventionMode": "NONE"
   },
   "newOrderResponse": {
     "symbol": "BTCUSDT",
@@ -1573,7 +1745,9 @@ Matching Engine
     "timeInForce": "GTC",
     "type": "LIMIT",
     "side": "BUY",
-    "fills": []
+    "workingTime": 1652928801803,
+    "fills": [],
+    "selfTradePreventionMode": "NONE"
   }
 }
 ```
@@ -1616,7 +1790,8 @@ Matching Engine
       "status": "CANCELED",
       "timeInForce": "GTC",
       "type": "LIMIT_MAKER",
-      "side": "SELL"
+      "side": "SELL",
+      "selfTradePreventionMode": "NONE"
     },
     "newOrderResponse": {
       "code": -2010,
@@ -1671,6 +1846,7 @@ Matching Engine
 }
 ```
 
+**Note:** The payload above does not show all fields that can appear. Please refer to [Conditional fields in Order Responses](#conditional-fields-in-order-responses).
 
 ### Current open orders (USER_DATA)
 ```
@@ -1715,10 +1891,14 @@ Memory => Database
     "time": 1499827319559,
     "updateTime": 1499827319559,
     "isWorking": true,
-    "origQuoteOrderQty": "0.000000"
+    "origQuoteOrderQty": "0.000000",
+    "workingTime": 1499827319559,
+    "selfTradePreventionMode": "NONE"
   }
 ]
 ```
+
+**Note:** The payload above does not show all fields that can appear. Please refer to [Conditional fields in Order Responses](#conditional-fields-in-order-responses).
 
 ### All orders (USER_DATA)
 ```
@@ -1770,10 +1950,14 @@ Database
     "time": 1499827319559,
     "updateTime": 1499827319559,
     "isWorking": true,
-    "origQuoteOrderQty": "0.000000"
+    "origQuoteOrderQty": "0.000000",
+    "workingTime": 1499827319559,
+    "selfTradePreventionMode": "NONE"
   }
 ]
 ```
+
+**Note:** The payload above does not show all fields that can appear. Please refer to [Conditional fields in Order Responses](#conditional-fields-in-order-responses).
 
 ### New OCO (TRADE)
 
@@ -1796,12 +1980,14 @@ quantity|DECIMAL|YES|
 limitClientOrderId|STRING|NO| A unique Id for the limit order
 price|DECIMAL|YES|
 limitIcebergQty|DECIMAL|NO|
+trailingDelta|LONG|NO|
 stopClientOrderId |STRING|NO| A unique Id for the stop loss/stop loss limit leg
 stopPrice |DECIMAL| YES
 stopLimitPrice|DECIMAL|NO| If provided, `stopLimitTimeInForce` is required.
 stopIcebergQty|DECIMAL|NO|
 stopLimitTimeInForce|ENUM|NO| Valid values are ```GTC```/```FOK```/```IOC```
 newOrderRespType|ENUM|NO| Set the response JSON.
+selfTradePreventionMode |ENUM| NO | The allowed enums is dependent on what is configured on the symbol. The possible supported values are `EXPIRE_TAKER`, `EXPIRE_MAKER`, `EXPIRE_BOTH`, `NONE`.
 recvWindow|LONG|NO| The value cannot be greater than `60000`
 timestamp|LONG|YES|
 
@@ -1857,7 +2043,9 @@ Matching Engine
       "timeInForce": "GTC",
       "type": "STOP_LOSS",
       "side": "BUY",
-      "stopPrice": "0.960664"
+      "stopPrice": "0.960664",
+      "workingTime": -1,
+      "selfTradePreventionMode": "NONE"
     },
     {
       "symbol": "LTCBTC",
@@ -1872,7 +2060,9 @@ Matching Engine
       "status": "NEW",
       "timeInForce": "GTC",
       "type": "LIMIT_MAKER",
-      "side": "BUY"
+      "side": "BUY",
+      "workingTime": 1563417480525,
+      "selfTradePreventionMode": "NONE"
     }
   ]
 }
@@ -1945,7 +2135,8 @@ Matching Engine
       "timeInForce": "GTC",
       "type": "STOP_LOSS_LIMIT",
       "side": "SELL",
-      "stopPrice": "1.00000000"
+      "stopPrice": "1.00000000",
+      "selfTradePreventionMode": "NONE"
     },
     {
       "symbol": "LTCBTC",
@@ -1960,7 +2151,8 @@ Matching Engine
       "status": "CANCELED",
       "timeInForce": "GTC",
       "type": "LIMIT_MAKER",
-      "side": "SELL"
+      "side": "SELL",
+      "selfTradePreventionMode": "NONE"
     }
   ]
 }
@@ -2161,9 +2353,17 @@ Database
   "takerCommission": 15,
   "buyerCommission": 0,
   "sellerCommission": 0,
+   "commissionRates": {
+    "maker": "0.00150000",
+    "taker": "0.00150000",
+    "buyer": "0.00000000",
+    "seller": "0.00000000"
+  },
   "canTrade": true,
   "canWithdraw": true,
   "canDeposit": true,
+  "brokered": false,
+  "requireSelfTradePrevention": false,
   "updateTime": 123456789,
   "accountType": "SPOT",
   "balances": [
@@ -2180,7 +2380,8 @@ Database
   ],
   "permissions": [
      "SPOT"
-  ]
+  ],
+  "tradeGroupId":2
 }
 ```
 
@@ -2203,12 +2404,21 @@ startTime | LONG | NO |
 endTime | LONG | NO |
 fromId | LONG | NO | TradeId to fetch from. Default gets most recent trades.
 limit | INT | NO | Default 500; max 1000.
-recvWindow | LONG | NO | The value cannot be greater than ```60000```
+recvWindow | LONG | NO | The value cannot be greater than `60000`
 timestamp | LONG | YES |
 
 **Notes:**
 * If `fromId` is set, it will get trades >= that `fromId`.
 Otherwise most recent trades are returned.
+
+* These are the supported combinations of all parameters:
+  * `symbol`
+  * `symbol` + `orderId`
+  * `symbol` + `startTime`
+  * `symbol` + `endTime`
+  * `symbol` + `fromId`
+  * `symbol` + `startTime` + `endTime`
+  * `symbol`+ `orderId` + `fromId`
 
 **Data Source:**
 Memory => Database
@@ -2272,6 +2482,63 @@ Memory
     "intervalNum": 1,
     "limit": 200000,
     "count": 0
+  }
+]
+```
+
+### Query Prevented Matches (USER_DATA)
+
+```
+GET /api/v3/myPreventedMatches
+```
+
+Displays the list of orders that were expired because of STP.
+
+These are the combinations supported:
+
+* `symbol` + `preventedMatchId`
+* `symbol` + `orderId`
+* `symbol` + `orderId` + `fromPreventedMatchId` (`limit` will default to 500)
+* `symbol` + `orderId` + `fromPreventedMatchId` + `limit` 
+
+**Parameters:**
+
+Name                | Type   | Mandatory    | Description
+------------        | ----   | ------------ | ------------
+symbol              | STRING | YES          |
+preventedMatchId    |LONG    | NO           | 
+orderId             |LONG    | NO           |
+fromPreventedMatchId|LONG    | NO           |
+limit               |INT     | NO           | Default: `500`; Max: `1000`
+recvWindow          | LONG   | NO           | The value cannot be greater than `60000`
+timestamp           | LONG   | YES          |
+
+**Weight**
+
+Case                            | Weight
+----                            | -----
+If `symbol` is invalid          | 1
+Querying by `preventedMatchId`  | 1
+Querying by `orderId`           | 10 
+
+**Data Source:**
+
+Database
+
+**Response:**
+
+```json
+[
+  {
+    "symbol": "BTCUSDT",
+    "preventedMatchId": 1,
+    "takerOrderId": 5,
+    "makerOrderId": 3,
+    "tradeGroupId": 1,
+    "selfTradePreventionMode": "EXPIRE_MAKER",
+    "price": "1.100000",
+    "makerPreventedQuantity": "1.300000",
+    "transactTime": 1669101687094
   }
 ]
 ```
@@ -2347,292 +2614,4 @@ Memory
 {}
 ```
 
-# Filters
-Filters define trading rules on a symbol or an exchange.
-Filters come in two forms: `symbol filters` and `exchange filters`.
 
-## Symbol filters
-### PRICE_FILTER
-The `PRICE_FILTER` defines the `price` rules for a symbol. There are 3 parts:
-
-* `minPrice` defines the minimum `price`/`stopPrice` allowed; disabled on `minPrice` == 0.
-* `maxPrice` defines the maximum `price`/`stopPrice` allowed; disabled on `maxPrice` == 0.
-* `tickSize` defines the intervals that a `price`/`stopPrice` can be increased/decreased by; disabled on `tickSize` == 0.
-
-Any of the above variables can be set to 0, which disables that rule in the `price filter`. In order to pass the `price filter`, the following must be true for `price`/`stopPrice` of the enabled rules:
-
-* `price` >= `minPrice` 
-* `price` <= `maxPrice`
-* (`price`-`minPrice`) % `tickSize` == 0
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "PRICE_FILTER",
-  "minPrice": "0.00000100",
-  "maxPrice": "100000.00000000",
-  "tickSize": "0.00000100"
-}
-```
-
-### PERCENT_PRICE
-The `PERCENT_PRICE` filter defines the valid range for the price based on the average of the previous trades.
-
-In order to pass the `percent price`, the following must be true for `price`:
-* `price` <= `weightedAveragePrice` * `multiplierUp`
-* `price` >= `weightedAveragePrice` * `multiplierDown`
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "PERCENT_PRICE",
-  "multiplierUp": "1.3000",
-  "multiplierDown": "0.7000",
-  "avgPriceMins": 5
-}
-```
-
-### PERCENT_PRICE_BY_SIDE
-The `PERCENT_PRICE_BY_SIDE` filter defines the valid range for the price based on the average of the previous trades.
-`avgPriceMins` is the number of minutes the average price is calculated over. 0 means the last price is used. <br>
-There is a different range depending on whether the order is placed on the `BUY` side or the `SELL` side.
-
-Buy orders will succeed on this filter if:
-* `Order price` <= `weightedAveragePrice` * `bidMultiplierUp`
-* `Order price` >= `weightedAveragePrice` * `bidMultiplierDown`
-
-Sell orders will succeed on this filter if:
-* `Order Price` <= `weightedAveragePrice` * `askMultiplierUp`
-* `Order Price` >= `weightedAveragePrice` * `askMultiplierDown`
-
-**/exchangeInfo format:**
-```javascript
-    {
-          "filterType": "PERCENT_PRICE_BY_SIDE",
-          "bidMultiplierUp": "1.2",
-          "bidMultiplierDown": "0.2",
-          "askMultiplierUp": "5",
-          "askMultiplierDown": "0.8",
-          "avgPriceMins": 1
-    }
-```
-
-### LOT_SIZE
-The `LOT_SIZE` filter defines the `quantity` (aka "lots" in auction terms) rules for a symbol. There are 3 parts:
-
-* `minQty` defines the minimum `quantity`/`icebergQty` allowed.
-* `maxQty` defines the maximum `quantity`/`icebergQty` allowed.
-* `stepSize` defines the intervals that a `quantity`/`icebergQty` can be increased/decreased by.
-
-In order to pass the `lot size`, the following must be true for `quantity`/`icebergQty`:
-
-* `quantity` >= `minQty`
-* `quantity` <= `maxQty`
-* (`quantity`-`minQty`) % `stepSize` == 0
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "LOT_SIZE",
-  "minQty": "0.00100000",
-  "maxQty": "100000.00000000",
-  "stepSize": "0.00100000"
-}
-```
-
-### MIN_NOTIONAL
-The `MIN_NOTIONAL` filter defines the minimum notional value allowed for an order on a symbol.
-An order's notional value is the `price` * `quantity`.
-`applyToMarket` determines whether or not the `MIN_NOTIONAL` filter will also be applied to `MARKET` orders.
-Since `MARKET` orders have no price, the average price is used over the last `avgPriceMins` minutes.
-`avgPriceMins` is the number of minutes the average price is calculated over. 0 means the last price is used.
-
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "MIN_NOTIONAL",
-  "minNotional": "0.00100000",
-  "applyToMarket": true,
-  "avgPriceMins": 5
-}
-```
-
-### NOTIONAL
-The `NOTIONAL` filter defines the acceptable notional range allowed for an order on a symbol. <br><br>
-`applyMinToMarket` determines whether the `minNotional` will be applied to `MARKET` orders. <br>
-`applyMaxToMarket` determines whether the `maxNotional` will be applied to `MARKET` orders.
-
-In order to pass this filter, the notional (`price * quantity`) has to pass the following conditions:
-
-* `price * quantity` <= `maxNotional`
-* `price * quantity` >= `minNotional`
-
-For `MARKET` orders, the average price used over the last `avgPriceMins` minutes will be used for calculation. <br>
-If the `avgPriceMins` is 0, then the last price will be used.
-
-**/exchangeInfo format:**
-```javascript
-{
-   "filterType": "NOTIONAL",
-   "minNotional": "10.00000000",
-   "applyMinToMarket": false,
-   "maxNotional": "10000.00000000",
-   "applyMaxToMarket": false,
-   "avgPriceMins": 5
-}
-```
-
-### ICEBERG_PARTS
-The `ICEBERG_PARTS` filter defines the maximum parts an iceberg order can have. The number of `ICEBERG_PARTS` is defined as `CEIL(qty / icebergQty)`.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "ICEBERG_PARTS",
-  "limit": 10
-}
-```
-
-### MARKET_LOT_SIZE
-The `MARKET_LOT_SIZE` filter defines the `quantity` (aka "lots" in auction terms) rules for `MARKET` orders on a symbol. There are 3 parts:
-
-* `minQty` defines the minimum `quantity` allowed.
-* `maxQty` defines the maximum `quantity` allowed.
-* `stepSize` defines the intervals that a `quantity` can be increased/decreased by.
-
-In order to pass the `market lot size`, the following must be true for `quantity`:
-
-* `quantity` >= `minQty`
-* `quantity` <= `maxQty`
-* (`quantity`-`minQty`) % `stepSize` == 0
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "MARKET_LOT_SIZE",
-  "minQty": "0.00100000",
-  "maxQty": "100000.00000000",
-  "stepSize": "0.00100000"
-}
-```
-
-### MAX_NUM_ORDERS
-The `MAX_NUM_ORDERS` filter defines the maximum number of orders an account is allowed to have open on a symbol.
-Note that both "algo" orders and normal orders are counted for this filter.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "MAX_NUM_ORDERS",
-  "maxNumOrders": 25
-}
-```
-
-### MAX_NUM_ALGO_ORDERS
-The `MAX_NUM_ALGO_ORDERS` filter defines the maximum number of "algo" orders an account is allowed to have open on a symbol.
-"Algo" orders are `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT`, and `TAKE_PROFIT_LIMIT` orders.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "MAX_NUM_ALGO_ORDERS",
-  "maxNumAlgoOrders": 5
-}
-```
-
-### MAX_NUM_ICEBERG_ORDERS
-The `MAX_NUM_ICEBERG_ORDERS` filter defines the maximum number of `ICEBERG` orders an account is allowed to have open on a symbol.
-An `ICEBERG` order is any order where the `icebergQty` is > 0.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "MAX_NUM_ICEBERG_ORDERS",
-  "maxNumIcebergOrders": 5
-}
-```
-
-### MAX_POSITION
-
-The `MAX_POSITION` filter defines the allowed maximum position an account can have on the base asset of a symbol. 
-An account's position defined as the sum of the account's:
-
-1. free balance of the base asset
-1. locked balance of the base asset
-1. sum of the qty of all open BUY orders
-
-`BUY` orders will be rejected if the account's position is greater than the maximum position allowed.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType":"MAX_POSITION",
-  "maxPosition":"10.00000000"
-}
-```
-
-### TRAILING_DELTA
-
-The `TRAILING_DELTA` filter defines the minimum and maximum value for the parameter `trailingDelta`.
-
-In order for a trailing stop order to pass this filter, the following must be true:
-
-For `STOP_LOSS BUY`, `STOP_LOSS_LIMIT_BUY`,`TAKE_PROFIT SELL` and `TAKE_PROFIT_LIMIT SELL` orders: 
-
-* `trailingDelta` >= `minTrailingAboveDelta`
-* `trailingDelta` <= `maxTrailingAboveDelta` 
-
-For `STOP_LOSS SELL`, `STOP_LOSS_LIMIT SELL`, `TAKE_PROFIT BUY`, and `TAKE_PROFIT_LIMIT BUY` orders:
-
-* `trailingDelta` >= `minTrailingBelowDelta`
-* `trailingDelta` <= `maxTrailingBelowDelta`
-
-
-**/exchangeInfo format:**
-
-```javascript
-    {
-          "filterType": "TRAILING_DELTA",
-          "minTrailingAboveDelta": 10,
-          "maxTrailingAboveDelta": 2000,
-          "minTrailingBelowDelta": 10,
-          "maxTrailingBelowDelta": 2000
-   }
-```
-
-## Exchange Filters
-### EXCHANGE_MAX_NUM_ORDERS
-The `EXCHANGE_MAX_NUM_ORDERS` filter defines the maximum number of orders an account is allowed to have open on the exchange.
-Note that both "algo" orders and normal orders are counted for this filter.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "EXCHANGE_MAX_NUM_ORDERS",
-  "maxNumOrders": 1000
-}
-```
-
-### EXCHANGE_MAX_NUM_ALGO_ORDERS
-The `EXCHANGE_MAX_NUM_ALGO_ORDERS` filter defines the maximum number of "algo" orders an account is allowed to have open on the exchange.
-"Algo" orders are `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT`, and `TAKE_PROFIT_LIMIT` orders.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "EXCHANGE_MAX_NUM_ALGO_ORDERS",
-  "maxNumAlgoOrders": 200
-}
-```
-
-### EXCHANGE_MAX_NUM_ICEBERG_ORDERS
-The `EXCHANGE_MAX_NUM_ICEBERG_ORDERS` filter defines the maximum number of iceberg orders an account is allowed to have open on the exchange.
-
-**/exchangeInfo format:**
-```javascript
-{
-  "filterType": "EXCHANGE_MAX_NUM_ICEBERG_ORDERS",
-  "maxNumIcebergOrders": 10000
-}
-```

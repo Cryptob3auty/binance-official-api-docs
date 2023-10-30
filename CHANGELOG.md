@@ -1,4 +1,307 @@
-# CHANGELOG for Binance's API (2022-06-20)
+# CHANGELOG for Binance US API (2023-09-06)
+
+
+## 2023-09-06
+
+- Interval for `1s` klines has been removed from the documentation as it is no longer supported.
+
+---
+
+## 2023-05-12
+
+* Spot WebSocket API is now available for Binance US.
+    * WebSocket API allows placing orders, canceling orders, etc. through a WebSocket connection.
+    * WebSocket API is a **separate** service from WebSocket Market Data streams. I.e., placing orders and listening to market data requires two separate WebSocket connections.
+    * WebSocket API is subject to the same Filter and Rate Limit rules as REST API.
+    * WebSocket API and REST API are functionally equivalent: they provide the same features, accept the same parameters, return the same status and error codes.
+* The full documentation can be found [here](./web-socket-api.md).
+
+---
+
+## 2023-03-08 
+
+**Notice:** All changes are being rolled out gradually to all our servers, and may take a few days to complete.
+
+GENERAL CHANGES
+
+* The error messages for certain issues have been improved for easier troubleshooting.
+
+<table>
+    <tr>
+        <th>Situation</th>
+        <th>Old Error Message</th>
+        <th>New Error Message</th>
+    </tr>
+    <tr>
+        <td>An account cannot place or cancel an order, due to trading ability disabled.</td>
+        <td rowspan="3">This action is disabled on this account.</td>
+        <td>This account may not place or cancel orders.</td>
+    </tr>
+    <tr>
+        <td>When the permissions configured on the symbol do not match the permissions on the account.</td>
+        <td>This symbol is not permitted for this account.</td>
+    </tr>
+    <tr>
+        <td>When the account tries to place an order on a symbol it has no permissions for.</td>
+        <td>This symbol is restricted for this account.</td>
+    </tr>
+    <tr>
+        <td>Placing an order when <tt>symbol</tt> is not <tt>TRADING</tt>. </td>
+        <td rowspan="2">Unsupported order combination.</td>
+        <td>This order type is not possible in this trading phase.</td>
+    </tr>
+    <tr>
+        <td>Placing an order with <tt>timeinForce</tt>=<tt>IOC</tt> or <tt>FOK</tt> on a trading phase that does not support it.</td>
+        <td>Limit orders require GTC for this phase.</td>
+    </tr>
+</table>
+
+* Fixed error message for querying archived orders: 
+    * Previously, if an archived order (i.e. order with status `CANCELED` or `EXPIRED` where `executedQty` == 0 that occurred in the last 90 days) is queried, the error message would be:
+    ```json
+    {
+        "code": -2013,
+        "msg": "Order does not exist." 
+    }
+    ```
+    * Now, the error message is: 
+    ```json
+    {
+        "code": -2026,
+        "msg": "Order was canceled or expired with no executed qty over 90 days ago and has been archived." 
+    }
+    ```
+* Behavior for API requests with `startTime` and `endTime`:
+    * Previously some requests failed if the `startTime` == `endTime`.
+    * Now, all API requests that accept `startTime` and `endTime` allow the parameters to be equal. This applies to the following requests:
+        * `GET /api/v3/aggTrades`
+        * `GET /api/v3/klines`
+        * `GET /api/v3/allOrderList`
+        * `GET /api/v3/allOrders`
+        * `GET /api/v3/myTrades`
+
+**Note:** The following changes will take effect **approximately one to two days from the release date**, but the rest of the documentation has been updated to reflect the future changes: 
+
+* Changes to Filter Evaluation: 
+    * Previous behavior: `LOT_SIZE` and `MARKET_LOT_SIZE` required that (`quantity` - `minQty`) % `stepSize` == 0. 
+    * New behavior: This has now been changed to (`quantity` % `stepSize`) == 0.
+* Bug fix with reverse `MARKET` orders (i.e. `MARKET` using `quoteOrderQty`):
+    * Previous behavior: Reverse market orders would have the status `FILLED` even if the order was not fully filled. 
+    * New behavior: If the reverse market order did not fully fill due to low liquidity the order status will be `EXPIRED`, and `FILLED` only if the order was completely filled.
+
+REST API
+
+* Changes to `DELETE /api/v3/order` and `POST /api/v3/order/cancelReplace`:
+    * New optional parameter `cancelRestrictions` that determine whether the cancel will succeed if the order status is `NEW` or `PARTIALLY_FILLED`.
+    * If the order cancellation fails due to `cancelRestrictions`, the error will be: 
+    ```json
+    {
+        "code": -2011, 
+        "msg": "Order was not canceled due to cancel restrictions."
+    }
+    ```
+
+
+## 2023-01-24
+
+The changes to the system will take place on **January 31, 2023**.
+
+Additional details on the functionality of STP is explained in the [STP FAQ](./faqs/stp_faq.md) document.
+
+Rest API
+
+* Self Trade Prevention (aka STP) will be added to the system. This will prevent orders from matching with orders from the same account, or accounts under the same `tradeGroupId`. The default and allowed modes can be confirmed using `GET /api/v3/exchangeInfo`: 
+```javascript
+"defaultSelfTradePreventionMode": "EXPIRE_MAKER",   //If selfTradePreventionMode not provided, this will be the value passed to the engine
+"allowedSelfTradePreventionModes": [        //What the allowed modes of selfTradePrevention are
+    "EXPIRE_MAKER",
+    "EXPIRE_TAKER",
+    "EXPIRE_BOTH"
+]
+```
+* New order status: `EXPIRED_IN_MATCH` - This means that the order expired due to STP being triggered.
+* New endpoints:
+   * `GET /api/v3/myPreventedMatches` - This queries the orders that expired due to STP being triggered.
+* New optional parameter `selfTradePreventionMode` has been added to the following endpoints:
+    * `POST /api/v3/order`
+    * `POST /api/v3/order/oco`
+    * `POST /api/v3/cancelReplace`
+* New responses that will appear for all order placement endpoints if there was a prevented match (i.e. if an order could have matched with an order of the same account, or the accounts are in the same `tradeGroupId`): 
+    * `tradeGroupId`      - This will only appear if account is configured to a `tradeGroupId` and if there was a prevented match.
+    * `preventedQuantity` - Only appears if there was a prevented match
+    * An array `preventedMatches` with the following fields:
+        * `preventedMatchId`
+        * `makerOrderId`
+        * `price`
+        * `takerPreventedQuantity` - This will only appear if `selfTradePreventionMode` set is `EXPIRE_TAKER` or `EXPIRE_BOTH`.
+        * `makerPreventedQuantity` - This will only appear if `selfTradePreventionMode` set is `EXPIRE_MAKER` or `EXPIRE_BOTH`.
+* New fields `preventedMatchId` and `preventedQuantity` that can appear in the order query endpoints if the order had expired due to STP trigger: 
+    * `GET /api/v3/order`
+    * `GET /api/v3/openOrders`
+    * `GET /api/v3/allOrders`
+* New field `tradeGroupId` will appear in the `GET /api/v3/account` response.
+
+USER DATA STREAM
+
+* New execution Type: `TRADE_PREVENTION`
+* New fields for `executionReport` (These fields will only appear if the order has expired due to STP trigger)
+    * `u` - `tradeGroupId` 
+    * `v` - `preventedMatchId`
+    * `U` - `counterOrderId`
+    * `A` - `preventedQuantity`
+    * `B` - `lastPreventedQuantity`
+
+---
+
+## 2022-11-28
+
+**Notice:** These changes are being rolled out gradually to all our servers, and will take approximately a week to complete.
+
+WEBSOCKET
+
+*  `!bookTicker` has been removed. Please use the Individual Book Ticker Streams instead. (`<symbol>@bookTicker`).
+    * Multiple `<symbol>@bookTicker` streams can be subscribed to over one connection. (E.g. `wss://stream.binance.us:9443/stream?streams=btcusdt@bookTicker/bnbbtc@bookTicker`)
+    * This removal will take effect **TOMORROW (2022-11-29)**.
+
+REST API 
+
+* New error code `-1135`
+    * This error code will occur if a parameter requiring a JSON object is invalid.
+* New error code `-1108`
+    * This error will occur if a value to a parameter being sent was too large, potentially causing overflow.
+    * This error code can occur in the following endpoints:
+        * `POST /api/v3/order`
+        * `POST /api/v3/order/cancelReplace`
+        * `POST /api/v3/order/oco`
+* Changes to `GET /api/v3/aggTrades`
+    * Previous behavior: `startTime` and `endTime` had to be used in combination and could only be an hour apart.
+    * New behavior: `startTime` and `endTime` can be used individually and the 1 hour limit has been removed.
+        * When using `startTime` only, this will return trades from that time, up to the `limit` provided.
+        * When using `endTime` only, this will return trades starting from the `endTime` including all trades before that time, up to the limit provided.
+        * If `limit` not provided, regardless of used in combination or sent individually, the endpoint will use the default limit.
+* Changes to `GET /api/v3/myTrades`
+    * Fixed a Bug where combining `symbol` + `orderId` combination would returns all trades even if the number of trades went beyond the `500` default limit. Now if this combination is used the trade will not go beyond the default `limit`.
+    * New behavior when sending combination of optional parameters that were not supported:
+        * Previous behavior: The API would send specific error messages depending on the combination of parameters sent. Eg.
+        ```json
+        { "code": -1106, "msg": "Parameter X was sent when not required." } 
+        ```
+        * New behavior: If the combinations of optional parameters to the endpoint were not supported, then the endpoint will respond with the generic error:
+        ```json
+        { "code": -1128, "msg": "Combination of optional parameters invalid." }
+        ```
+    * Added a new combination of supported parameters: `symbol` + `orderId` + `fromId`.
+    * The following combinations of parameters were previously supported but now **removed**.
+        * `symbol` + `fromId` + `startTime`
+        * `symbol` + `fromId` + `endTime`
+        * `symbol` + `fromId` + `startTime` + `endTime`
+    * Thus, these are the supported combinations of parameters:
+        * `symbol`
+        * `symbol` + `orderId`
+        * `symbol` + `startTime`
+        * `symbol` + `endTime`
+        * `symbol` + `fromId`
+        * `symbol` + `startTime` + `endTime`
+        * `symbol`+ `orderId` + `fromId`
+
+**Note:** These new fields will appear approximately a week from the release date.
+
+* Changes to `GET /api/v3/exchangeInfo`
+    * New fields `defaultSelfTradePreventionMode` and `allowedSelfTradePreventionModes`
+* Changes to the Order Placement Endpoints/Order Query/Order Cancellation Endpoints:
+    * New field `selfTradePreventionMode` will appear in the response.
+    * Affects the following endpoints:
+        * `POST /api/v3/order`
+        * `POST /api/v3/order/oco`
+        * `POST /api/v3/order/cancelReplace`
+        * `GET /api/v3/order`
+        * `DELETE /api/v3/order`
+        * `DELETE /api/v3/orderList`
+* Changes to  `GET /api/v3/account`
+    * New field `requireSelfTradePrevention` will appear in the response.
+* New field `workingTime`, indicating when the order started working on the order book, will appear in the following endpoints:
+    * `POST /api/v3/order`
+    * `GET /api/v3/order`
+    * `POST /api/v3/order/cancelReplace`
+    * `POST /api/v3/order/oco`
+    * `GET /api/v3/order`
+    * `GET /api/v3/openOrders`
+    * `GET /api/v3/allOrders`
+* Field `trailingTime`, indicating the time when the trailing order is active and tracking price changes, will appear for the following order types  (`TAKE_PROFIT`, `TAKE_PROFIT_LIMIT`, `STOP_LOSS`, `STOP_LOSS_LIMIT` if `trailingDelta` parameter was provided) for the following endpoints: 
+    * `POST /api/v3/order`
+    * `GET /api/v3/order`
+    * `GET /api/v3/openOrders`
+    * `GET /api/v3/allOrders`
+    * `POST /api/v3/order/cancelReplace`
+    * `DELETE /api/v3/order`
+* Field `commissionRates` will appear in the `GET /api/v3/acccount` response
+
+USER DATA STREAM
+
+* eventType `executionReport` has new fields
+    * `V` - `selfTradePreventionMode` 
+    * `D` - `trailing_time`  (Appears if the trailing stop order is active)
+    * `W` - `workingTime`   (Appears if the order is working on the order book)
+
+---
+
+## 2022-10-11
+
+* Trailing Stops have been enabled.
+    * This is a type of algo order where the activation is based on a percentage of a price change in the market using the new parameter `trailingDelta`.
+    * This can only be used with any of the following order types: `STOP_LOSS`, `STOP_LOSS_LIMIT`, `TAKE_PROFIT`, `TAKE_PROFIT_LIMIT`.
+    * The `trailingDelta` parameter will be done in Basis Points or BIPS.
+        * For example: a STOP_LOSS SELL order with a `trailingDelta` of 100 will trigger after a price decrease of 1% from the highest price after the order is placed. (100 / 10,000 => 0.01 => 1%)
+    * When used in combination with OCO Orders, the `trailingDelta` will determine when the contingent leg of the OCO will trigger.
+    * When `trailingDelta` is used in combination with `stopPrice`, once the `stopPrice` condition is met, the trailing stop starts tracking the price change from the `stopPrice` based on the `trailingDelta` provided.
+    * When no `stopPrice` is sent, the trailing stop starts tracking the price changes from the last price based on the `trailingDelta` provided.
+* Changes to POST `/api/v3/order`
+    * New optional field `trailingDelta`
+* Changes to POST `/api/v3/order/test`
+    * New optional field `trailingDelta`
+* Changes to POST `/api/v3/order/oco`
+    * New optional field `trailingDelta`
+* A new filter `TRAILING_DELTA` has been added.
+    * This filter is defined by the minimum and maximum values for the `trailingDelta` value.
+* Cancel Replace Orders have been enabled.
+    * Cancels an existing order and places a new order on the same symbol using the endpoint `POST /api/v3/order/cancelReplace`
+
+---
+
+## 2022-09-30
+
+Scheduled changes to the removal of `!bookTicker` around November 2022.
+
+* The All Book Tickers stream (`!bookTicker`) is set to be removed in **November 2022**
+* More details of the actual removal date will be announced at a later time.
+* Please use the Individual Book Ticker Streams instead. (`<symbol>@bookTicker`)
+* Multiple `<symbol>@bookTicker` streams can be subscribed to over one connection. 
+    * Example: wss://stream.binance.us:9443/stream?streams=btcusdt@bookTicker/bnbbtc@bookTicker
+
+---
+
+## 2022-09-14
+
+Note that these are rolling changes, so it may take a few days for it to rollout to all our servers.
+
+* Changes to `GET /api/v3/exchangeInfo`
+    * New optional parameter `permissions` added to display all symbols with the permissions matching the value provided. 
+    * If not provided, the default value will be `["SPOT"]`
+    * Cannot be combined with `symbol` or `symbols`
+
+---
+
+## 2022-08-22
+
+* Changes to `GET /api/v3/ticker` and `GET /api/v3/ticker/24hr`
+    * New optional parameter `type` added
+    * Supported values for parameter `type` are `FULL` and `MINI`
+        * `FULL` is the default value and the response that is currently being returned from the endpoint
+        * `MINI` omits the following fields from the response: `priceChangePercent`, `weightedAvgPrice`, `bidPrice`, `bidQty`, `askPrice`, `askQty`, and `lastQty`
+* New error code `-1008` 
+    * This is sent whenever the servers are overloaded with requests.
+* New field `brokered` has been added to `GET /api/v3/account`
+* New kline interval: `1s`
 
 ---
 
@@ -60,7 +363,8 @@ REST API
 * Fixed a typo with an error message when an account has disabled permissions (e.g. to withdraw, to trade, etc)
     ```json
     "This action is disabled on this account." 
-
+    ```
+    
 ---
 
 ## 2022-02-28

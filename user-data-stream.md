@@ -10,11 +10,13 @@
 - [Web Socket Payloads](#web-socket-payloads)
   - [Account Update](#account-update)
   - [Order Update](#order-update)
+    - [Conditional Fields in Execution Report](#conditional-fields-in-execution-report)
+    - [Execution types](#execution-types)
   - [Balance Update](#balance-update)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-# User Data Streams for Binance (2021-06-21)
+# User Data Streams for Binance (2023-01-24)
 # General WSS information
 * The base API endpoint is: **https://api.binance.us**
 * A User Data Stream `listenKey` is valid for 60 minutes after creation.
@@ -110,10 +112,6 @@ The event `outboundAccountPosition` is sent any time an account balance has chan
 ## Order Update
 Orders are updated with the `executionReport` event.
 
-Check the [Rest API Documentation](./rest-api.md#enum-definitions) and below for relevant enum definitions.
-
-Average price can be found by doing `Z` divided by `z`.
-
 **Payload:**
 ```javascript
 {
@@ -148,18 +146,63 @@ Average price can be found by doing `Z` divided by `z`.
   "O": 1499405658657,            // Order creation time
   "Z": "0.00000000",             // Cumulative quote asset transacted quantity
   "Y": "0.00000000",             // Last quote asset transacted quantity (i.e. lastPrice * lastQty)
-  "Q": "0.00000000"              //Quote Order Quantity
+  "Q": "0.00000000",             // Quote Order Quantity
+  "W": 1499405658657,            // Working Time; This is only visible if the order has been placed on the book.
+  "V": "NONE"                    // SelfTradePreventionMode
 }
 ```
 
-**Execution types:**
+**Note:** Average price can be found by doing `Z` divided by `z`.
 
-* NEW - The order has been accepted into the engine.
-* CANCELED - The order has been canceled by the user.
-* REPLACED (currently unused)
-* REJECTED - The order has been rejected and was not processed. (This is never pushed into the User Data Stream)
-* TRADE - Part of the order or all of the order's quantity has filled.
-* EXPIRED - The order was canceled according to the order type's rules (e.g. LIMIT FOK orders with no fill, LIMIT IOC or MARKET orders that partially fill) or by the exchange, (e.g. orders canceled during liquidation, orders canceled during maintenance)
+### Conditional Fields in Execution Report
+
+These are fields that appear in the payload only if certain conditions are met.
+
+<table>
+  <tr>
+    <th>Field</th>
+    <th>Name</th>
+    <th>Description</th>
+    <th>Examples</th>
+  </tr>
+  <tr>
+    <td><code>d</code></td>
+    <td>Trailing Delta</td>
+    <td rowspan="2">Appears only for trailing stop orders.</td>
+    <td><code>"d": 4</code></td>
+  </tr>
+  <tr>
+    <td><code>D</code></td>
+    <td>Trailing Time</td>
+    <td><code>"D": 1668680518494</code></td>
+  </tr>
+  <tr>
+    <td><code>v</code></td>
+    <td>Prevented Match Id</td>
+    <td rowspan="5">Appears only for orders that expired due to STP.</td>
+    <td><code>"v": 3</code></td>
+  </tr>
+  <tr>
+    <td><code>A</code>
+    <td>Prevented Quantity</td>
+    <td><code>"A":"3.000000"</code></td>
+  </tr>
+  <tr>
+    <td><code>B</code></td>
+    <td>Last Prevented Quantity</td>
+    <td><code>"B":"3.000000"</code></td>
+  </tr>
+  <tr>
+    <td><code>u</code></td>
+    <td>Trade Group Id</td>
+    <td><code>"u":1</code></td>
+  </tr>
+  <tr>
+    <td><code>U</code></td>
+    <td>Counter Order Id</td>
+    <td><code>"U":37</code></td>
+  </tr>
+</table>
 
 If the order is an OCO, an event will be displayed named `ListStatus` in addition to the `executionReport` event.
 
@@ -191,6 +234,18 @@ If the order is an OCO, an event will be displayed named `ListStatus` in additio
 }
 ```
 
+### Execution types
+
+* `NEW` - The order has been accepted into the engine.
+* `CANCELED` - The order has been canceled by the user.
+* `REPLACED` (currently unused)
+* `REJECTED` - The order has been rejected and was not processed. (This message appears only with Cancel Replace Orders wherein the new order placement is rejected but the request to cancel request succeeds.)
+* `TRADE` - Part of the order or all of the order's quantity has filled.
+* `EXPIRED` - The order was canceled according to the order type's rules (e.g. LIMIT FOK orders with no fill, LIMIT IOC or MARKET orders that partially fill) or by the exchange, (e.g. orders canceled during liquidation, orders canceled during maintenance)
+* `TRADE_PREVENTION` - The order has expired due to STP.
+
+Check the [Rest API Documentation](./rest-api.md#enum-definitions) and below for relevant enum definitions.
+
 ## Balance Update
 
 Balance Update occurs during deposit or withdrawals from the account.
@@ -207,6 +262,3 @@ Balance Update occurs during deposit or withdrawals from the account.
 }
 
 ```
-
-
-

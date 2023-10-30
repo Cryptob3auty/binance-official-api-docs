@@ -22,14 +22,13 @@
   - [Individual Symbol Rolling Window Statistics Streams](#individual-symbol-rolling-window-statistics-streams)
   - [All Market Rolling Window Statistics Streams](#all-market-rolling-window-statistics-streams)
   - [Individual Symbol Book Ticker Streams](#individual-symbol-book-ticker-streams)
-  - [All Book Tickers Stream](#all-book-tickers-stream)
   - [Partial Book Depth Streams](#partial-book-depth-streams)
   - [Diff. Depth Stream](#diff-depth-stream)
   - [How to manage a local order book correctly](#how-to-manage-a-local-order-book-correctly)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-# Web Socket Streams for Binance (2022-06-13)
+# Web Socket Streams for Binance (2023-09-06)
 # General WSS information
 * The base endpoint is: **wss://stream.binance.us:9443**
 * Streams can be accessed either in a single raw stream or in a combined stream
@@ -186,17 +185,17 @@ The Aggregate Trade Streams push trade information that is aggregated for a sing
 **Payload:**
 ```javascript
 {
-  "e": "aggTrade",  // Event type
-  "E": 123456789,   // Event time
-  "s": "BNBBTC",    // Symbol
-  "a": 12345,       // Aggregate trade ID
-  "p": "0.001",     // Price
-  "q": "100",       // Quantity
-  "f": 100,         // First trade ID
-  "l": 105,         // Last trade ID
-  "T": 123456785,   // Trade time
-  "m": true,        // Is the buyer the market maker?
-  "M": true         // Ignore
+  "e": "aggTrade",       // Event type
+  "E": 1672515782136,    // Event time
+  "s": "BNBBTC",         // Symbol
+  "a": 12345,            // Aggregate trade ID
+  "p": "0.001",          // Price
+  "q": "100",            // Quantity
+  "f": 100,              // First trade ID
+  "l": 105,              // Last trade ID
+  "T": 1672515782136,    // Trade time
+  "m": true,             // Is the buyer the market maker?
+  "M": true              // Ignore
 }
 ```
 
@@ -210,17 +209,17 @@ The Trade Streams push raw trade information; each trade has a unique buyer and 
 **Payload:**
 ```javascript
 {
-  "e": "trade",     // Event type
-  "E": 123456789,   // Event time
-  "s": "BNBBTC",    // Symbol
-  "t": 12345,       // Trade ID
-  "p": "0.001",     // Price
-  "q": "100",       // Quantity
-  "b": 88,          // Buyer order ID
-  "a": 50,          // Seller order ID
-  "T": 123456785,   // Trade time
-  "m": true,        // Is the buyer the market maker?
-  "M": true         // Ignore
+  "e": "trade",          // Event type
+  "E": 1672515782136,    // Event time
+  "s": "BNBBTC",         // Symbol
+  "t": 12345,            // Trade ID
+  "p": "0.001",          // Price
+  "q": "100",            // Quantity
+  "b": 88,               // Buyer order ID
+  "a": 50,               // Seller order ID
+  "T": 1672515782136,    // Trade time
+  "m": true,             // Is the buyer the market maker?
+  "M": true              // Ignore
 }
 ```
 
@@ -228,8 +227,8 @@ The Trade Streams push raw trade information; each trade has a unique buyer and 
 The Kline/Candlestick Stream push updates to the current klines/candlestick every second.
 
 **Kline/Candlestick chart intervals:**
-
-m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
+ 
+ m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
 
 * 1m
 * 3m
@@ -249,32 +248,32 @@ m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
 
 **Stream Name:** \<symbol\>@kline_\<interval\>
 
-**Update Speed:** 2000ms
+**Update Speed:** 2000ms 
 
 **Payload:**
 ```javascript
 {
-  "e": "kline",     // Event type
-  "E": 123456789,   // Event time
-  "s": "BNBBTC",    // Symbol
+  "e": "kline",         // Event type
+  "E": 1672515782136,   // Event time
+  "s": "BNBBTC",        // Symbol
   "k": {
-    "t": 123400000, // Kline start time
-    "T": 123460000, // Kline close time
-    "s": "BNBBTC",  // Symbol
-    "i": "1m",      // Interval
-    "f": 100,       // First trade ID
-    "L": 200,       // Last trade ID
-    "o": "0.0010",  // Open price
-    "c": "0.0020",  // Close price
-    "h": "0.0025",  // High price
-    "l": "0.0015",  // Low price
-    "v": "1000",    // Base asset volume
-    "n": 100,       // Number of trades
-    "x": false,     // Is this kline closed?
-    "q": "1.0000",  // Quote asset volume
-    "V": "500",     // Taker buy base asset volume
-    "Q": "0.500",   // Taker buy quote asset volume
-    "B": "123456"   // Ignore
+    "t": 1672515780000, // Kline start time
+    "T": 1672515839999, // Kline close time
+    "s": "BNBBTC",      // Symbol
+    "i": "1m",          // Interval
+    "f": 100,           // First trade ID
+    "L": 200,           // Last trade ID
+    "o": "0.0010",      // Open price
+    "c": "0.0020",      // Close price
+    "h": "0.0025",      // High price
+    "l": "0.0015",      // Low price
+    "v": "1000",        // Base asset volume
+    "n": 100,           // Number of trades
+    "x": false,         // Is this kline closed?
+    "q": "1.0000",      // Quote asset volume
+    "V": "500",         // Taker buy base asset volume
+    "Q": "0.500",       // Taker buy quote asset volume
+    "B": "123456"       // Ignore
   }
 }
 ```
@@ -290,7 +289,7 @@ m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
 ```javascript
   {
     "e": "24hrMiniTicker",  // Event type
-    "E": 123456789,         // Event time
+    "E": 1672515782136,     // Event time
     "s": "BNBBTC",          // Symbol
     "c": "0.0025",          // Close price
     "o": "0.0010",          // Open price
@@ -328,7 +327,7 @@ m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
 ```javascript
 {
   "e": "24hrTicker",  // Event type
-  "E": 123456789,     // Event time
+  "E": 1672515782136, // Event time
   "s": "BNBBTC",      // Symbol
   "p": "0.0015",      // Price change
   "P": "250.00",      // Price change percent
@@ -346,7 +345,7 @@ m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
   "v": "10000",       // Total traded base asset volume
   "q": "18",          // Total traded quote asset volume
   "O": 0,             // Statistics open time
-  "C": 86400000,      // Statistics close time
+  "C": 1675216573749, // Statistics close time
   "F": 0,             // First trade ID
   "L": 18150,         // Last trade Id
   "n": 18151          // Total number of trades
@@ -376,7 +375,7 @@ Rolling window ticker statistics for a single symbol, computed over multiple win
 
 **Stream Name:** \<symbol\>@ticker_\<window_size\>
 
-**Window Sizes:** 1h,4h
+**Window Sizes:** 1h,4h,1d
 
 **Update Speed:** 1000ms
 
@@ -389,7 +388,7 @@ As such, the effective window might be up to  59999ms wider that \<window_size\>
 ```javascript
 {
   "e": "1hTicker",    // Event type
-  "E": 123456789,     // Event time
+  "E": 1672515782136, // Event time
   "s": "BNBBTC",      // Symbol
   "p": "0.0015",      // Price change
   "P": "250.00",      // Price change percent
@@ -416,7 +415,7 @@ Note that only tickers that have changed will be present in the array.
 
 **Stream Name:** !ticker_\<window-size\>@arr
 
-**Window Size:** 1h,4h
+**Window Size:** 1h,4h,1d
 
 **Update Speed:** 1000ms
 
@@ -431,7 +430,8 @@ Note that only tickers that have changed will be present in the array.
 ```
 
 ## Individual Symbol Book Ticker Streams
-Pushes any update to the best bid or ask's price or quantity in real-time for a specified symbol.
+Pushes any update to the best bid or ask's price or quantity in real-time for a specified symbol.<br>
+Multiple `<symbol>@bookTicker` streams can be subscribed to over one connection. 
 
 **Stream Name:** \<symbol\>@bookTicker
 
@@ -448,21 +448,6 @@ Pushes any update to the best bid or ask's price or quantity in real-time for a 
   "A":"40.66000000"  // best ask qty
 }
 ```
-
-## All Book Tickers Stream
-Pushes any update to the best bid or ask's price or quantity in real-time for all symbols.
-
-**Stream Name:** !bookTicker
-
-**Update Speed:** Real-time
-
-**Payload:**
-```javascript
-{
-  // Same as <symbol>@bookTicker payload
-}
-```
-
 
 ## Partial Book Depth Streams
 Top **\<levels\>** bids and asks, pushed every second. Valid **\<levels\>** are 5, 10, or 20.
@@ -501,7 +486,7 @@ Order book price and quantity depth updates used to locally manage an order book
 ```javascript
 {
   "e": "depthUpdate", // Event type
-  "E": 123456789,     // Event time
+  "E": 1672515782136, // Event time
   "s": "BNBBTC",      // Symbol
   "U": 157,           // First update ID in event
   "u": 160,           // Final update ID in event

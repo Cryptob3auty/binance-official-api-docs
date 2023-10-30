@@ -1,4 +1,4 @@
-# Error codes for Binance (2022-06-13)
+# Error codes for Binance US (2023-03-08)
 Errors consist of two parts: an error code and a message. Codes are universal,
  but messages can vary. Here is the error JSON payload:
 ```javascript
@@ -11,7 +11,7 @@ Errors consist of two parts: an error code and a message. Codes are universal,
 
 ## 10xx - General Server or Network issues
 #### -1000 UNKNOWN
- * An unknown error occured while processing the request.
+ * An unknown error occurred while processing the request.
 
 #### -1001 DISCONNECTED
  * Internal error; unable to process your request. Please try again.
@@ -21,15 +21,17 @@ Errors consist of two parts: an error code and a message. Codes are universal,
 
 #### -1003 TOO_MANY_REQUESTS
  * Too many requests queued.
- * Too many requests; please use the websocket for live updates.
- * Too many requests; current limit is %s requests per minute. Please use the websocket for live updates to avoid polling the API.
- * Way too much request weight used; IP banned until %s. Please use the websocket for live updates to avoid bans.
+ * Too much request weight used; current limit is %s request weight per %s. Please use WebSocket Streams for live updates to avoid polling the API.
+ * Way too much request weight used; IP banned until %s. Please use WebSocket Streams for live updates to avoid bans.
 
 #### -1006 UNEXPECTED_RESP
  * An unexpected response was received from the message bus. Execution status unknown.
 
 #### -1007 TIMEOUT
  * Timeout waiting for response from backend server. Send status unknown; execution status unknown.
+
+#### -1008 SERVER_BUSY
+  * Server is currently overloaded with other requests. Please try again in a few minutes. 
 
 #### -1014 UNKNOWN_ORDER_COMPOSITION
  * Unsupported order combination.
@@ -82,6 +84,9 @@ Errors consist of two parts: an error code and a message. Codes are universal,
  * A parameter was sent when not required.
  * Parameter '%s' sent when not required.
 
+#### -1108 PARAM_OVERFLOW
+ * Parameter '%s' overflowed.
+
 #### -1111 BAD_PRECISION
  * Precision is over the maximum defined for this asset.
 
@@ -126,6 +131,13 @@ Errors consist of two parts: an error code and a message. Codes are universal,
  * Invalid data sent for a parameter.
  * Data sent for parameter '%s' is not valid.
 
+#### -1135 INVALID_JSON
+ * Invalid JSON Request
+ * JSON sent for parameter '%s' is not valid
+
+#### -1145 INVALID_CANCEL_RESTRICTIONS
+ * `cancelRestrictions` has to be either `ONLY_NEW` or `ONLY_PARTIALLY_FILLED`.
+
 #### -2010 NEW_ORDER_REJECTED
  * NEW_ORDER_REJECTED
 
@@ -144,6 +156,8 @@ Errors consist of two parts: an error code and a message. Codes are universal,
 #### -2016 NO_TRADING_WINDOW
  * No trading window could be found for the symbol. Try ticker/24hrs instead.
 
+#### -2026 ORDER_ARCHIVED
+  * Order was canceled or expired with no executed qty over 90 days ago and has been archived.
 
 ## Messages for -1010 ERROR_MSG_RECEIVED, -2010 NEW_ORDER_REJECTED, and -2011 CANCEL_REJECTED
 This code is sent when an error has been returned by the matching engine.
@@ -174,6 +188,9 @@ Error message | Description
 "Quote order qty market orders are not support for this symbol."| `MARKET` orders using the parameter `quoteOrderQty` are not enabled on the symbol.
 "Trailing stop orders are not supported for this symbol."   | Orders using `trailingDelta` are not enabled on the symbol.
 "Order cancel-replace is not supported for this symbol."  | `POST /api/v3/order/cancelReplace` is not enabled for the symbol.
+"This symbol is not permitted for this account."                  | Account does not have permission to trade on this symbol.
+"This symbol is restricted for this account."                     | Account does not have permission to trade on this symbol.
+"Order was not canceled due to cancel restrictions."              | Either `cancelRestrictions` was set to `ONLY_NEW` but the order status was not `NEW` <br/> or <br/> `cancelRestrictions` was set to `ONLY_PARTIALLY_FILLED` but the order status was not `PARTIALLY_FILLED`. 
 
 ## Errors regarding POST /api/v3/order/cancelReplace
 
@@ -185,7 +202,7 @@ This code is sent when either the cancellation of the order failed or the new or
 
 This code is sent when both the cancellation of the order failed and the new order placement failed.
 
-## -9xxx Filter failures
+## Filter failures
 Error message | Description
 ------------ | ------------
 "Filter failure: PRICE_FILTER" | `price` is too high, too low, and/or not following the tick size rule for the symbol.
@@ -197,6 +214,6 @@ Error message | Description
 "Filter failure: MAX_NUM_ORDERS" | Account has too many open orders on the symbol.
 "Filter failure: MAX_NUM_ALGO_ORDERS" | Account has too many open stop loss and/or take profit orders on the symbol.
 "Filter failure: MAX_NUM_ICEBERG_ORDERS" | Account has too many open iceberg orders on the symbol.
+"Filter failure: TRAILING_DELTA" | `trailingDelta` is not within the defined range of the filter for that order type.
 "Filter failure: EXCHANGE_MAX_NUM_ORDERS" | Account has too many open orders on the exchange.
 "Filter failure: EXCHANGE_MAX_NUM_ALGO_ORDERS" | Account has too many open stop loss and/or take profit orders on the exchange.
-
